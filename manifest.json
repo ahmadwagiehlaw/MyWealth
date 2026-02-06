@@ -1,0 +1,25 @@
+{
+  "name": "Wealth Commander",
+  "short_name": "WealthCmd",
+  "description": "Personal Wealth Management System - Track, Analyze, Profit",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#ffd700",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "assets/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": [
+    "finance",
+    "productivity"
+  ],
+  "lang": "ar",
+  "dir": "rtl"
+}

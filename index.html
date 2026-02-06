@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Wealth Cmd">
+    <meta name="description" content="Personal Wealth Management System - Track, Analyze, Profit">
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/icons/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg">
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css">
+
+    <title>Wealth Commander | إدارة الثروة</title>
+</head>
+
+<body>
+    <!-- PWA Install Banner -->
+    <div id="pwa-install-banner" class="pwa-banner hidden">
+        <div class="pwa-banner-content">
+            <div class="pwa-banner-icon">
+                <i class="fa-solid fa-download"></i>
+            </div>
+            <div class="pwa-banner-text">
+                <strong>ثبّت التطبيق</strong>
+                <span>للوصول السريع وتجربة أفضل</span>
+            </div>
+            <button id="pwa-install-btn" class="btn btn-gold">تثبيت</button>
+            <button id="pwa-dismiss-btn" class="btn-icon"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <i class="fa-solid fa-crown"></i>
+            </div>
+            <div class="loading-text">Wealth Commander</div>
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="auth-screen hidden">
+        <div class="auth-container">
+            <div class="auth-logo">
+                <i class="fa-solid fa-crown"></i>
+            </div>
+            <h1 class="auth-title">Wealth Commander</h1>
+            <p class="auth-subtitle">نظام إدارة الثروة الشخصية</p>
+
+            <!-- Auth Tabs -->
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
+                <button class="auth-tab" data-tab="register">إنشاء حساب</button>
+            </div>
+
+            <!-- Login Form -->
+            <div id="login-form" class="auth-form active">
+                <div class="form-group">
+                    <label class="form-label">البريد الإلكتروني</label>
+                    <input type="email" class="form-input" id="login-email" placeholder="example@email.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">كلمة المرور</label>
+                    <input type="password" class="form-input" id="login-password" placeholder="••••••••">
+                </div>
+                <button id="email-login-btn" class="btn btn-primary" style="width: 100%; margin-top: var(--space-md);">
+                    <i class="fa-solid fa-right-to-bracket"></i>
+                    تسجيل الدخول
+                </button>
+            </div>
+
+            <!-- Register Form -->
+            <div id="register-form" class="auth-form">
+                <div class="form-group">
+                    <label class="form-label">الاسم</label>
+                    <input type="text" class="form-input" id="register-name" placeholder="اسمك">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">البريد الإلكتروني</label>
+                    <input type="email" class="form-input" id="register-email" placeholder="example@email.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">كلمة المرور</label>
+                    <input type="password" class="form-input" id="register-password" placeholder="••••••••">
+                </div>
+                <button id="register-btn" class="btn btn-primary" style="width: 100%; margin-top: var(--space-md);">
+                    <i class="fa-solid fa-user-plus"></i>
+                    إنشاء حساب
+                </button>
+            </div>
+
+            <!-- Divider -->
+            <div class="auth-divider">
+                <span>أو</span>
+            </div>
+
+            <!-- Social Login -->
+            <button id="google-login-btn" class="btn btn-google">
+                <i class="fa-brands fa-google"></i>
+                تسجيل الدخول بـ Google
+            </button>
+
+            <!-- Guest Mode -->
+            <button id="guest-login-btn" class="btn btn-ghost" style="width: 100%; margin-top: var(--space-sm);">
+                <i class="fa-solid fa-user-secret"></i>
+                الدخول كزائر (بدون حساب)
+            </button>
+
+            <!-- Error Message -->
+            <div id="auth-error" class="auth-error hidden"></div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <button id="theme-toggle" class="btn-icon" title="تبديل المظهر">
+                    <i class="fa-solid fa-moon" id="theme-icon"></i>
+                </button>
+            </div>
+            <div class="header-center">
+                <h1 class="app-title">
+                    <i class="fa-solid fa-crown"></i>
+                    <span>Wealth Commander</span>
+                </h1>
+            </div>
+            <div class="header-right">
+                <div id="user-avatar" class="user-avatar">
+                    <img src="" alt="User" id="user-photo">
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="main-content">
+            <!-- Views will be injected here by router -->
+
+            <!-- Dashboard View -->
+            <section id="dashboard-view" class="view active">
+                <div id="dashboard-container" class="container"></div>
+            </section>
+
+            <!-- Portfolios View -->
+            <section id="portfolios-view" class="view">
+                <div class="view-header">
+                    <h2 class="section-title"><i class="fa-solid fa-vault"></i> المحافظ</h2>
+                    <button class="btn btn-primary" id="add-portfolio-btn">
+                        <i class="fa-solid fa-plus"></i> محفظة جديدة
+                    </button>
+                </div>
+                <div id="portfolios-container" class="container"></div>
+            </section>
+
+            <!-- Profits View (Alpha Dashboard) -->
+            <section id="profits-view" class="view">
+                <div class="view-header">
+                    <h2 class="section-title"><i class="fa-solid fa-chart-line"></i> الأرباح الصافية</h2>
+                    <button class="btn btn-primary" id="add-profit-btn">
+                        <i class="fa-solid fa-plus"></i> تسجيل ربح
+                    </button>
+                </div>
+                <div id="profits-container" class="container"></div>
+            </section>
+
+            <!-- Calculator View -->
+            <section id="calculator-view" class="view">
+                <div class="view-header">
+                    <h2 class="section-title"><i class="fa-solid fa-calculator"></i> الحاسبة الذكية</h2>
+                </div>
+                <div id="calculator-container" class="container"></div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="settings-view" class="view">
+                <div class="view-header">
+                    <h2 class="section-title"><i class="fa-solid fa-gear"></i> الإعدادات</h2>
+                </div>
+                <div id="settings-container" class="container"></div>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" data-view="dashboard">
+                <i class="fa-solid fa-house"></i>
+                <span>الرئيسية</span>
+            </button>
+            <button class="nav-item" data-view="portfolios">
+                <i class="fa-solid fa-vault"></i>
+                <span>المحافظ</span>
+            </button>
+            <button class="nav-item" data-view="profits">
+                <i class="fa-solid fa-sack-dollar"></i>
+                <span>الأرباح</span>
+            </button>
+            <button class="nav-item" data-view="calculator">
+                <i class="fa-solid fa-calculator"></i>
+                <span>الحاسبة</span>
+            </button>
+            <button class="nav-item" data-view="settings">
+                <i class="fa-solid fa-gear"></i>
+                <span>الإعدادات</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>
