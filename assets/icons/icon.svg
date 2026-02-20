@@ -1,38 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#ffd700"/>
-      <stop offset="100%" style="stop-color:#f59e0b"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1220"/>
+      <stop offset="100%" stop-color="#111f35"/>
     </linearGradient>
-    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a1a"/>
-      <stop offset="100%" style="stop-color:#0a0a0a"/>
+    <linearGradient id="diamond" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#dff7ff"/>
+      <stop offset="45%" stop-color="#74d8ff"/>
+      <stop offset="100%" stop-color="#18a9ff"/>
+    </linearGradient>
+    <linearGradient id="diamondDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4eb6ff"/>
+      <stop offset="100%" stop-color="#0f6dcb"/>
     </linearGradient>
   </defs>
-  
-  <!-- Background -->
-  <rect width="512" height="512" rx="80" fill="url(#bgGradient)"/>
-  
-  <!-- Crown Icon -->
-  <g transform="translate(256, 256) scale(0.65)">
-    <path d="M-180 60 L-120 -120 L-60 20 L0 -180 L60 20 L120 -120 L180 60 L150 140 L-150 140 Z" 
-          fill="url(#goldGradient)" 
-          stroke="#ffd700" 
-          stroke-width="8"/>
-    
-    <!-- Crown Gems -->
-    <circle cx="-120" cy="-100" r="20" fill="#3b82f6"/>
-    <circle cx="0" cy="-160" r="25" fill="#10b981"/>
-    <circle cx="120" cy="-100" r="20" fill="#8b5cf6"/>
-    
-    <!-- Crown Base Band -->
-    <rect x="-150" y="100" width="300" height="40" rx="10" fill="url(#goldGradient)"/>
-  </g>
-  
-  <!-- Decorative Dollar Sign -->
-  <g transform="translate(390, 400)">
-    <circle r="45" fill="#10b981" opacity="0.9"/>
-    <text x="0" y="15" text-anchor="middle" 
-          font-family="Arial" font-size="55" font-weight="bold" fill="white">$</text>
+
+  <rect width="512" height="512" rx="92" fill="url(#bg)"/>
+
+  <g transform="translate(256 268)">
+    <path d="M-186 -46 L-110 -128 H112 L188 -46 L0 162 Z"
+      fill="url(#diamond)"
+      stroke="#e9fbff"
+      stroke-width="12"
+      stroke-linejoin="round"/>
+
+    <path d="M-186 -46 H188 M-110 -128 L0 162 M112 -128 L0 162 M0 -128 V162"
+      fill="none"
+      stroke="#ffffff"
+      stroke-opacity=".7"
+      stroke-width="10"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+    <path d="M-110 -128 H112 L58 -46 H-58 Z" fill="url(#diamondDark)" opacity=".7"/>
   </g>
 </svg>
