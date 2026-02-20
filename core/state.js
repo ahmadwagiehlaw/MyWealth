@@ -5,9 +5,11 @@
 const state = {
     user: null,
     portfolios: [],
+    portfolioHistory: [],
     assets: [],
     trades: [],
     profits: [],
+    partnerDistributions: [],
     settings: {
         baseCurrency: 'EGP',
         exchangeRates: { USD: 50.5 },

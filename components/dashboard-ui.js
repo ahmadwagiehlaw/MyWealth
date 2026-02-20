@@ -1,15 +1,31 @@
-// ==========================================
+﻿// ==========================================
 // Dashboard UI - Executive Summary
 // ==========================================
 
 import { registerView } from '../core/router.js';
 import { getState } from '../core/state.js';
-import { getPortfolios, getTotalMarketValue, getTotalInvestedCapital, getPortfolioDistribution } from '../modules/portfolios.js';
-import { getProfits, getTotalNetProfits, getTotalPartnerShare, getMyTotalShare, getUndistributedPartnerShare, getAverageROCE, compareToBankBenchmark } from '../modules/profits.js';
+import {
+    getPortfolios,
+    getPortfolioHistory,
+    getTotalMarketValue,
+    getTotalInvestedCapital,
+    getPortfolioDistribution,
+    getTotalPortfolioEvolutionSeries
+} from '../modules/portfolios.js';
+import {
+    getProfits,
+    getTotalPartnerShare,
+    getUndistributedPartnerShare,
+    getTotalDistributedToPartner,
+    getRemainingProfitsAfterDistribution,
+    compareToBankBenchmark
+} from '../modules/profits.js';
 import { formatCurrency, formatCompact, formatPercent } from '../utils/formatters.js';
-import { showLoading, hideLoading, showToast } from '../utils/ui-helpers.js';
+import { showLoading, hideLoading } from '../utils/ui-helpers.js';
 
 let distributionChart = null;
+let totalEvolutionChart = null;
+let activeEvolutionRange = 'month';
 
 /**
  * Render the dashboard view
@@ -21,42 +37,39 @@ export async function renderDashboard() {
     showLoading();
 
     try {
-        // Load data
-        await Promise.all([getPortfolios(), getProfits()]);
+        await Promise.all([getPortfolios(), getPortfolioHistory(), getProfits()]);
 
         const { portfolios, profits, settings } = getState();
 
-        // Calculate stats
         const totalMarketValue = getTotalMarketValue();
         const totalInvested = getTotalInvestedCapital();
-        const totalNetProfits = getTotalNetProfits();
-        const partnerShare = getTotalPartnerShare();
-        const myShare = getMyTotalShare();
-        const undistributed = getUndistributedPartnerShare();
-        const avgROCE = getAverageROCE();
+        const expectedPartnerShare = getTotalPartnerShare();
+        const paidToPartner = getTotalDistributedToPartner();
+        const pendingToPartner = getUndistributedPartnerShare();
+        const remainingAfterPaid = getRemainingProfitsAfterDistribution();
 
-        // Beat the Bank comparison
         const months = profits.length > 0 ? getMonthsSpan(profits) : 1;
-        const bankComparison = compareToBankBenchmark(totalInvested, months);
+        const bankComparison = compareToBankBenchmark(months);
 
         container.innerHTML = `
-            ${renderHeroCard(myShare, undistributed)}
-            ${renderStatCards(totalMarketValue, totalInvested, partnerShare)}
-            ${renderBeatBankGauge(bankComparison, settings.bankBenchmark)}
+            ${renderHeroCard(remainingAfterPaid, pendingToPartner, paidToPartner)}
+            ${renderStatCards(totalMarketValue, totalInvested, expectedPartnerShare)}
+            ${renderEvolutionChart()}
+            ${renderBeatBankGauge(bankComparison, settings.bankBenchmark, months)}
             ${renderDistributionChart(portfolios)}
             ${renderQuickActions()}
         `;
 
-        // Initialize chart
+        bindEvolutionFilters();
+        initTotalEvolutionChart();
         initDistributionChart();
-
     } catch (error) {
-        console.error('❌ Dashboard Error:', error);
+        console.error('Dashboard Error:', error);
         container.innerHTML = `
-            <div class="glass-card" style="text-align: center; padding: 3rem;">
-                <i class="fa-solid fa-exclamation-triangle" style="font-size: 3rem; color: var(--red); margin-bottom: 1rem;"></i>
+            <div class="glass-card" style="text-align:center; padding:2.5rem;">
+                <i class="fa-solid fa-exclamation-triangle" style="font-size:2rem; color:var(--red); margin-bottom:0.75rem;"></i>
                 <p>حدث خطأ في تحميل البيانات</p>
-                <button class="btn btn-primary" onclick="location.reload()" style="margin-top: 1rem;">إعادة المحاولة</button>
+                <button class="btn btn-primary" onclick="location.reload()" style="margin-top:0.75rem;">إعادة المحاولة</button>
             </div>
         `;
     } finally {
@@ -68,28 +81,18 @@ export async function renderDashboard() {
 // Component Renderers
 // ==========================================
 
-function renderHeroCard(myShare, undistributed) {
+function renderHeroCard(remainingAfterPaid, pendingToPartner, paidToPartner) {
     return `
-        <div class="glass-card hero-card" style="
-            background: linear-gradient(135deg, rgba(255,215,0,0.1), rgba(245,158,11,0.05));
-            border: 1px solid rgba(255,215,0,0.2);
-            text-align: center;
-            padding: var(--space-xl);
-            margin-bottom: var(--space-lg);
-        ">
-            <div style="font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--space-sm);">
+        <div class="glass-card hero-card dashboard-hero">
+            <div class="dashboard-hero-label">
                 <i class="fa-solid fa-sack-dollar"></i>
-                إجمالي أرباحي القابلة للسحب
+                الأرباح المتبقية بعد التوزيع الفعلي
             </div>
-            <div style="font-size: var(--font-size-3xl); font-weight: 800; color: var(--gold); margin-bottom: var(--space-sm);">
-                ${formatCurrency(myShare)}
+            <div class="dashboard-hero-value">${formatCurrency(remainingAfterPaid)}</div>
+            <div class="dashboard-hero-meta">
+                <span><i class="fa-solid fa-clock"></i> متبقي للشريك ${formatCurrency(pendingToPartner)}</span>
+                <span><i class="fa-solid fa-circle-check"></i> المدفوع فعليا ${formatCurrency(paidToPartner)}</span>
             </div>
-            ${undistributed > 0 ? `
-                <div style="font-size: var(--font-size-xs); color: var(--orange);">
-                    <i class="fa-solid fa-clock"></i>
-                    ${formatCurrency(undistributed)} في انتظار التوزيع للشريك
-                </div>
-            ` : ''}
         </div>
     `;
 }
@@ -99,150 +102,86 @@ function renderStatCards(marketValue, invested, partnerShare) {
     const unrealizedPercent = invested > 0 ? (unrealized / invested * 100) : 0;
 
     return `
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-md); margin-bottom: var(--space-lg);">
-            <!-- Market Value -->
-            <div class="glass-card" style="text-align: center; padding: var(--space-lg);">
-                <div style="
-                    width: 48px; height: 48px;
-                    background: var(--blue-bg);
-                    color: var(--blue);
-                    border-radius: var(--radius-full);
-                    display: flex; align-items: center; justify-content: center;
-                    margin: 0 auto var(--space-sm);
-                    font-size: 1.25rem;
-                ">
+        <div class="dashboard-stats-row dashboard-stats-row-tight">
+            <div class="glass-card dashboard-stat-card">
+                <div class="dashboard-stat-icon" style="background: var(--blue-bg); color: var(--blue);">
                     <i class="fa-solid fa-chart-pie"></i>
                 </div>
-                <div style="font-size: var(--font-size-xl); font-weight: 700; color: var(--text-primary);">
-                    ${formatCompact(marketValue)}
-                </div>
-                <div style="font-size: var(--font-size-xs); color: var(--text-muted);">
-                    القيمة السوقية
-                </div>
+                <div class="dashboard-stat-value">${formatCompact(marketValue)}</div>
+                <div class="dashboard-stat-label">القيمة السوقية</div>
             </div>
-            
-            <!-- Unrealized P&L -->
-            <div class="glass-card" style="text-align: center; padding: var(--space-lg);">
-                <div style="
-                    width: 48px; height: 48px;
-                    background: ${unrealized >= 0 ? 'var(--green-bg)' : 'var(--red-bg)'};
-                    color: ${unrealized >= 0 ? 'var(--green)' : 'var(--red)'};
-                    border-radius: var(--radius-full);
-                    display: flex; align-items: center; justify-content: center;
-                    margin: 0 auto var(--space-sm);
-                    font-size: 1.25rem;
-                ">
+
+            <div class="glass-card dashboard-stat-card">
+                <div class="dashboard-stat-icon" style="background: ${unrealized >= 0 ? 'var(--green-bg)' : 'var(--red-bg)'}; color: ${unrealized >= 0 ? 'var(--green)' : 'var(--red)'};">
                     <i class="fa-solid fa-${unrealized >= 0 ? 'arrow-trend-up' : 'arrow-trend-down'}"></i>
                 </div>
-                <div style="font-size: var(--font-size-xl); font-weight: 700; color: ${unrealized >= 0 ? 'var(--green)' : 'var(--red)'};">
-                    ${formatPercent(unrealizedPercent)}
-                </div>
-                <div style="font-size: var(--font-size-xs); color: var(--text-muted);">
-                    غير محقق
-                </div>
+                <div class="dashboard-stat-value" style="color:${unrealized >= 0 ? 'var(--green)' : 'var(--red)'};">${formatPercent(unrealizedPercent)}</div>
+                <div class="dashboard-stat-label">غير محقق</div>
             </div>
-            
-            <!-- Partner Share -->
-            <div class="glass-card" style="text-align: center; padding: var(--space-lg);">
-                <div style="
-                    width: 48px; height: 48px;
-                    background: var(--purple-bg);
-                    color: var(--purple);
-                    border-radius: var(--radius-full);
-                    display: flex; align-items: center; justify-content: center;
-                    margin: 0 auto var(--space-sm);
-                    font-size: 1.25rem;
-                ">
+
+            <div class="glass-card dashboard-stat-card">
+                <div class="dashboard-stat-icon" style="background: var(--purple-bg); color: var(--purple);">
                     <i class="fa-solid fa-handshake"></i>
                 </div>
-                <div style="font-size: var(--font-size-xl); font-weight: 700; color: var(--purple);">
-                    ${formatCompact(partnerShare)}
-                </div>
-                <div style="font-size: var(--font-size-xs); color: var(--text-muted);">
-                    نصيب الشريك
-                </div>
+                <div class="dashboard-stat-value" style="color:var(--purple);">${formatCompact(partnerShare)}</div>
+                <div class="dashboard-stat-label">نصيب الشريك</div>
             </div>
         </div>
     `;
 }
 
-function renderBeatBankGauge(comparison, bankRate) {
-    const { myProfit, bankProfit, beatBank, percentageBetter } = comparison;
+function renderEvolutionChart() {
+    return `
+        <div class="glass-card dashboard-evolution-card">
+            <div class="dashboard-evolution-head">
+                <div class="dashboard-evolution-title">
+                    <i class="fa-solid fa-chart-line"></i>
+                    تطور إجمالي المحافظ
+                </div>
+                <div class="profits-chart-filters">
+                    <button class="profits-chart-filter ${activeEvolutionRange === 'week' ? 'active' : ''}" data-evo-range="week">أسبوعي</button>
+                    <button class="profits-chart-filter ${activeEvolutionRange === 'month' ? 'active' : ''}" data-evo-range="month">شهري</button>
+                    <button class="profits-chart-filter ${activeEvolutionRange === 'year' ? 'active' : ''}" data-evo-range="year">سنوي</button>
+                </div>
+            </div>
+            <div class="dashboard-evolution-sub">الخط الأخضر: قيمة المحافظ | الخط الذهبي: نسبة التغير</div>
+            <div class="dashboard-evolution-body">
+                <canvas id="totalEvolutionChart"></canvas>
+                <div id="total-evolution-empty" class="profits-chart-empty hidden">لا توجد بيانات كافية لعرض الشارت</div>
+            </div>
+        </div>
+    `;
+}
+
+function renderBeatBankGauge(comparison, bankRate, months) {
+    const { myProfit, bankProfit, beatBank, percentageBetter, capitalBase } = comparison;
     const gaugePercent = Math.min(100, Math.max(0, (myProfit / (bankProfit || 1)) * 50));
 
     return `
-        <div class="glass-card" style="margin-bottom: var(--space-lg); padding: var(--space-lg);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md);">
+        <div class="glass-card dashboard-beat-bank">
+            <div class="dashboard-beat-bank-head">
                 <div style="font-size: var(--font-size-md); font-weight: 600;">
-                    <i class="fa-solid fa-trophy" style="color: ${beatBank ? 'var(--gold)' : 'var(--text-muted)'}; margin-left: var(--space-sm);"></i>
+                    <i class="fa-solid fa-trophy" style="color:${beatBank ? 'var(--gold)' : 'var(--text-muted)'}; margin-left: var(--space-sm);"></i>
                     Beat the Bank
                 </div>
-                <div style="font-size: var(--font-size-xs); color: var(--text-muted);">
-                    معيار البنك: ${bankRate}% شهرياً
-                </div>
+                <div style="font-size: var(--font-size-xs); color: var(--text-muted);">معيار البنك: ${bankRate}% شهريا</div>
             </div>
-            
-            <!-- Gauge Bar -->
-            <div style="
-                height: 12px;
-                background: var(--bg-card);
-                border-radius: 6px;
-                overflow: hidden;
-                position: relative;
-                margin-bottom: var(--space-md);
-            ">
-                <!-- Bank benchmark line at 50% -->
-                <div style="
-                    position: absolute;
-                    left: 50%;
-                    top: 0;
-                    bottom: 0;
-                    width: 2px;
-                    background: var(--text-muted);
-                    z-index: 1;
-                "></div>
-                
-                <!-- Progress bar -->
-                <div style="
-                    height: 100%;
-                    width: ${gaugePercent}%;
-                    background: ${beatBank
-            ? 'linear-gradient(90deg, var(--green), var(--gold))'
-            : 'linear-gradient(90deg, var(--red), var(--orange))'};
-                    border-radius: 6px;
-                    transition: width 0.5s ease;
-                    ${beatBank ? 'box-shadow: 0 0 10px var(--gold-glow);' : ''}
-                "></div>
+            <div style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 0.55rem;">
+                رأس المال المرجعي: ${formatCurrency(capitalBase)} خلال ${months} شهر
             </div>
-            
-            <!-- Labels -->
-            <div style="display: flex; justify-content: space-between; font-size: var(--font-size-xs);">
-                <div>
-                    <span style="color: var(--text-muted);">أنت:</span>
-                    <span style="color: ${beatBank ? 'var(--green)' : 'var(--red)'}; font-weight: 600;">
-                        ${formatCurrency(myProfit)}
-                    </span>
-                </div>
-                <div>
-                    <span style="color: var(--text-muted);">البنك:</span>
-                    <span style="color: var(--text-secondary); font-weight: 600;">
-                        ${formatCurrency(bankProfit)}
-                    </span>
-                </div>
+
+            <div style="height: 10px; background: var(--bg-card); border-radius: 6px; overflow: hidden; position: relative; margin-bottom: 0.6rem;">
+                <div style="position:absolute; left:50%; top:0; bottom:0; width:2px; background: var(--text-muted);"></div>
+                <div style="height:100%; width:${gaugePercent}%; background:${beatBank ? 'linear-gradient(90deg, var(--green), var(--gold))' : 'linear-gradient(90deg, var(--red), var(--orange))'}; border-radius:6px;"></div>
             </div>
-            
+
+            <div style="display:flex; justify-content:space-between; font-size: var(--font-size-xs);">
+                <div><span style="color: var(--text-muted);">أنت:</span> <span style="color:${beatBank ? 'var(--green)' : 'var(--red)'}; font-weight:700;">${formatCurrency(myProfit)}</span></div>
+                <div><span style="color: var(--text-muted);">البنك:</span> <span style="font-weight:700;">${formatCurrency(bankProfit)}</span></div>
+            </div>
+
             ${beatBank ? `
-                <div style="
-                    margin-top: var(--space-md);
-                    padding: var(--space-sm) var(--space-md);
-                    background: rgba(255,215,0,0.1);
-                    border-radius: var(--radius-sm);
-                    text-align: center;
-                    font-size: var(--font-size-sm);
-                    color: var(--gold);
-                ">
-                    🎉 أداؤك أفضل من البنك بنسبة <strong>${percentageBetter.toFixed(0)}%</strong>!
-                </div>
+                <div class="dashboard-beat-bank-win">أداؤك أفضل من البنك بنسبة ${percentageBetter.toFixed(0)}%</div>
             ` : ''}
         </div>
     `;
@@ -251,10 +190,10 @@ function renderBeatBankGauge(comparison, bankRate) {
 function renderDistributionChart(portfolios) {
     if (portfolios.length === 0) {
         return `
-            <div class="glass-card" style="text-align: center; padding: var(--space-xl); margin-bottom: var(--space-lg);">
-                <i class="fa-solid fa-vault" style="font-size: 3rem; color: var(--text-muted); margin-bottom: var(--space-md);"></i>
+            <div class="glass-card" style="text-align:center; padding:1.5rem; margin-bottom: var(--space-lg);">
+                <i class="fa-solid fa-vault" style="font-size:2rem; color:var(--text-muted); margin-bottom:0.6rem;"></i>
                 <p style="color: var(--text-secondary);">لم تقم بإضافة أي محفظة بعد</p>
-                <button class="btn btn-primary" style="margin-top: var(--space-md);" onclick="navigateToPortfolios()">
+                <button class="btn btn-primary" style="margin-top:0.6rem;" onclick="navigateToPortfolios()">
                     <i class="fa-solid fa-plus"></i> إضافة محفظة
                 </button>
             </div>
@@ -262,12 +201,12 @@ function renderDistributionChart(portfolios) {
     }
 
     return `
-        <div class="glass-card" style="padding: var(--space-lg); margin-bottom: var(--space-lg);">
-            <div style="font-size: var(--font-size-md); font-weight: 600; margin-bottom: var(--space-md);">
+        <div class="glass-card" style="padding: var(--space-md); margin-bottom: var(--space-lg);">
+            <div style="font-size: var(--font-size-md); font-weight: 700; margin-bottom: 0.5rem;">
                 <i class="fa-solid fa-chart-pie" style="color: var(--gold); margin-left: var(--space-sm);"></i>
                 توزيع الثروة
             </div>
-            <div style="height: 200px; position: relative;">
+            <div style="height: 190px; position: relative;">
                 <canvas id="distributionChart"></canvas>
             </div>
         </div>
@@ -276,12 +215,12 @@ function renderDistributionChart(portfolios) {
 
 function renderQuickActions() {
     return `
-        <div class="glass-card" style="padding: var(--space-lg);">
-            <div style="font-size: var(--font-size-md); font-weight: 600; margin-bottom: var(--space-md);">
+        <div class="glass-card" style="padding: var(--space-md);">
+            <div style="font-size: var(--font-size-md); font-weight: 700; margin-bottom: 0.55rem;">
                 <i class="fa-solid fa-bolt" style="color: var(--gold); margin-left: var(--space-sm);"></i>
                 إجراءات سريعة
             </div>
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-md);">
+            <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
                 <button class="btn" style="background: var(--green-bg); color: var(--green); justify-content: center;" onclick="openAddProfitModal()">
                     <i class="fa-solid fa-plus"></i>
                     تسجيل ربح
@@ -299,6 +238,128 @@ function renderQuickActions() {
 // Chart Initialization
 // ==========================================
 
+function bindEvolutionFilters() {
+    const buttons = document.querySelectorAll('[data-evo-range]');
+    buttons.forEach(button => {
+        button.addEventListener('click', () => {
+            const nextRange = button.dataset.evoRange;
+            if (!nextRange || nextRange === activeEvolutionRange) return;
+
+            activeEvolutionRange = nextRange;
+            buttons.forEach(item => item.classList.toggle('active', item.dataset.evoRange === activeEvolutionRange));
+            initTotalEvolutionChart();
+        });
+    });
+}
+
+function initTotalEvolutionChart() {
+    const canvas = document.getElementById('totalEvolutionChart');
+    if (!canvas) return;
+
+    const empty = document.getElementById('total-evolution-empty');
+    const points = getTotalPortfolioEvolutionSeries(activeEvolutionRange);
+
+    if (totalEvolutionChart) totalEvolutionChart.destroy();
+
+    if (points.length === 0) {
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+
+    if (empty) empty.classList.add('hidden');
+
+    const ctx = canvas.getContext('2d');
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const gridColor = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)';
+    const tickColor = isLight ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)';
+
+    totalEvolutionChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: points.map(p => p.label),
+            datasets: [{
+                label: 'إجمالي القيمة (ج.م)',
+                data: points.map(p => p.value),
+                yAxisID: 'y',
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                fill: true,
+                tension: 0.35,
+                borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4
+            }, {
+                label: 'التغير %',
+                data: points.map(p => p.changePct),
+                yAxisID: 'y1',
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                tension: 0.35,
+                borderDash: [5, 4],
+                borderWidth: 2,
+                pointRadius: 2.5,
+                pointHoverRadius: 4,
+                spanGaps: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        color: tickColor,
+                        boxWidth: 10,
+                        usePointStyle: true
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.9)',
+                    callbacks: {
+                        label: (ctx) => {
+                            if (ctx.dataset.yAxisID === 'y1') {
+                                if (ctx.raw === null || Number.isNaN(ctx.raw)) return ' التغير: —';
+                                return ` التغير: ${formatPercent(ctx.raw, true)}`;
+                            }
+                            return ` القيمة: ${formatCurrency(ctx.raw)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    position: 'left',
+                    grid: { color: gridColor },
+                    ticks: {
+                        color: tickColor,
+                        callback: (value) => formatCurrency(value)
+                    }
+                },
+                y1: {
+                    position: 'right',
+                    grid: { drawOnChartArea: false },
+                    ticks: {
+                        color: '#f59e0b',
+                        callback: (value) => `${value}%`
+                    }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: {
+                        color: tickColor,
+                        autoSkip: true,
+                        maxRotation: 0
+                    }
+                }
+            }
+        }
+    });
+}
+
 function initDistributionChart() {
     const canvas = document.getElementById('distributionChart');
     if (!canvas) return;
@@ -308,7 +369,6 @@ function initDistributionChart() {
 
     const ctx = canvas.getContext('2d');
 
-    // Destroy existing chart
     if (distributionChart) distributionChart.destroy();
 
     const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
@@ -321,20 +381,20 @@ function initDistributionChart() {
                 data: distribution.map(d => d.value),
                 backgroundColor: colors.slice(0, distribution.length),
                 borderWidth: 0,
-                hoverOffset: 10
+                hoverOffset: 8
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '60%',
+            cutout: '62%',
             plugins: {
                 legend: {
-                    position: 'right',
+                    position: 'bottom',
                     labels: {
                         color: 'rgba(255,255,255,0.7)',
                         font: { size: 11 },
-                        padding: 15
+                        padding: 12
                     }
                 },
                 tooltip: {
@@ -342,7 +402,7 @@ function initDistributionChart() {
                     callbacks: {
                         label: (ctx) => {
                             const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            const percent = ((ctx.raw / total) * 100).toFixed(1);
+                            const percent = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : '0.0';
                             return ` ${formatCurrency(ctx.raw)} (${percent}%)`;
                         }
                     }
@@ -359,10 +419,12 @@ function initDistributionChart() {
 function getMonthsSpan(profits) {
     if (profits.length === 0) return 1;
 
-    const dates = profits.map(p => {
-        const d = p.date?.toDate ? p.date.toDate() : new Date(p.date);
-        return d.getTime();
-    });
+    const dates = profits
+        .map(item => item.date?.toDate ? item.date.toDate() : new Date(item.date))
+        .filter(d => !Number.isNaN(d.getTime()))
+        .map(d => d.getTime());
+
+    if (dates.length === 0) return 1;
 
     const minDate = new Date(Math.min(...dates));
     const maxDate = new Date(Math.max(...dates));
@@ -383,12 +445,10 @@ window.navigateToCalculator = () => {
 };
 
 window.openAddProfitModal = async () => {
-    // Import and use the modal from profits-ui
     const profitsUI = await import('./profits-ui.js');
     profitsUI.openAddProfitModalFromDashboard();
 };
 
-// Register view
 registerView('dashboard', renderDashboard);
 
-console.log('📊 Dashboard UI loaded');
+console.log('Dashboard UI loaded');
