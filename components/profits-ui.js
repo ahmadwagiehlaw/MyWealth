@@ -39,7 +39,9 @@ export async function renderProfits() {
     showLoading();
 
     try {
-        await Promise.all([getPortfolios(), getProfits(), getPartnerDistributions()]);
+        await getPortfolios();
+        await getProfits();
+        await getPartnerDistributions();
 
         const { profits, portfolios, partnerDistributions } = getState();
 
@@ -75,15 +77,14 @@ export async function renderProfits() {
 // Stat Cards
 // ==========================================
 
-function renderCompactStatCard({ icon, iconColor, iconBg, value, valueColor, label, meta }) {
+function renderMiniStatCard({ icon, iconColor, iconBg, value, valueColor, label }) {
     return `
-        <div class="glass-card profits-stat-card">
-            <div class="profits-stat-icon" style="color:${iconColor}; background:${iconBg};">
+        <div class="glass-card profits-mini-stat">
+            <div class="profits-mini-icon" style="color:${iconColor}; background:${iconBg};">
                 <i class="fa-solid ${icon}"></i>
             </div>
-            <div class="profits-stat-value" style="color:${valueColor};">${value}</div>
-            <div class="profits-stat-label">${label}</div>
-            ${meta ? `<div class="profits-stat-meta">${meta}</div>` : ''}
+            <div class="profits-mini-value num" style="color:${valueColor};">${value}</div>
+            <div class="profits-mini-label">${label}</div>
         </div>
     `;
 }
@@ -127,46 +128,45 @@ function renderROCECard(avgROCE) {
 }
 
 function renderStatsCards(totalNet, remainingAfterPaid, distributedToPartner, undistributed, avgROCE) {
-    const expectedPartnerTotal = distributedToPartner + undistributed;
+    // "الأرباح المستثمرة" = total profits minus what was distributed
+    const investedProfits = totalNet - distributedToPartner;
 
     return `
-        <div class="profits-stats-grid">
-            ${renderCompactStatCard({
+        <div class="profits-mini-row">
+            ${renderMiniStatCard({
         icon: 'fa-sack-dollar',
         iconColor: 'var(--green)',
         iconBg: 'var(--green-bg)',
         value: formatStatNumber(totalNet),
         valueColor: 'var(--green)',
-        label: 'صافي الأرباح',
-        meta: toRatioText(totalNet, totalNet, 'الوزن')
+        label: 'صافي الأرباح'
     })}
-            ${renderCompactStatCard({
-        icon: 'fa-wallet',
+            ${renderMiniStatCard({
+        icon: 'fa-piggy-bank',
         iconColor: 'var(--blue)',
         iconBg: 'var(--blue-bg)',
-        value: formatStatNumber(remainingAfterPaid),
+        value: formatStatNumber(investedProfits),
         valueColor: 'var(--blue)',
-        label: 'الأرباح المتبقية',
-        meta: toRatioText(remainingAfterPaid, totalNet, 'من صافي الأرباح')
+        label: 'أرباح مستثمرة'
     })}
-            ${renderCompactStatCard({
+            ${renderMiniStatCard({
         icon: 'fa-clock',
         iconColor: 'var(--orange)',
         iconBg: 'var(--orange-bg)',
         value: formatStatNumber(undistributed),
         valueColor: 'var(--orange)',
-        label: 'متبقي للشريك',
-        meta: toRatioText(undistributed, expectedPartnerTotal, 'غير مدفوع')
+        label: 'مستحق للشريك'
     })}
-            ${renderCompactStatCard({
+            ${renderMiniStatCard({
         icon: 'fa-hand-holding-dollar',
         iconColor: 'var(--purple)',
         iconBg: 'var(--purple-bg)',
         value: formatStatNumber(distributedToPartner),
         valueColor: 'var(--purple)',
-        label: 'تم توزيعه للشريك',
-        meta: toRatioText(distributedToPartner, expectedPartnerTotal, 'تم سداده')
+        label: 'تم توزيعه'
     })}
+        </div>
+        <div style="margin-bottom: 0.75rem;">
             ${renderROCECard(avgROCE)}
         </div>
     `;
@@ -231,39 +231,14 @@ function renderRecordsPanel(profits, portfolios, distributions) {
     `;
 }
 
-function getProfitChange(profits, index) {
-    const current = profits[index];
-    const previous = profits[index + 1];
-    if (!current || !previous) return null;
-
-    const currentValue = toEGP(Number(current.netProfit) || 0, current.currency);
-    const previousValue = toEGP(Number(previous.netProfit) || 0, previous.currency);
-    const delta = currentValue - previousValue;
-
-    if (Math.abs(previousValue) < 0.0001) return { delta, pct: null };
-    return { delta, pct: (delta / Math.abs(previousValue)) * 100 };
-}
-
-function renderProfitChangeLine(change) {
-    if (!change) return `<div class="profit-row-change muted">لا يوجد مقارنة سابقة</div>`;
-
-    const signClass = change.delta >= 0 ? 'up' : 'down';
-    const pctText = change.pct === null ? '—' : formatPercent(change.pct, true);
-
-    return `
-        <div class="profit-row-change ${signClass}">
-            <span>تغير القيمة: ${formatCurrency(change.delta, 'EGP', true)}</span>
-            <span>${pctText}</span>
-        </div>
-    `;
-}
-
 function renderProfitsTable(profits, portfolios) {
     if (profits.length === 0) {
         return `
             <div class="records-empty-state">
-                <i class="fa-solid fa-receipt"></i>
-                <p>لم تسجل أي أرباح بعد</p>
+                <div style="width:50px; height:50px; margin: 0 auto 0.6rem; border-radius:50%; background: var(--green-bg); display:flex; align-items:center; justify-content:center;">
+                    <i class="fa-solid fa-receipt" style="font-size:1.3rem; color:var(--green);"></i>
+                </div>
+                <p style="font-weight: 600; margin-bottom: 0.5rem;">لم تسجل أي أرباح بعد</p>
                 <button class="btn btn-primary" onclick="openAddProfitModal()">
                     <i class="fa-solid fa-plus"></i> تسجيل ربح
                 </button>
@@ -271,62 +246,38 @@ function renderProfitsTable(profits, portfolios) {
         `;
     }
 
-    const rows = profits.map((p, index) => {
+    const rows = profits.map((p) => {
         const date = p.date?.toDate ? p.date.toDate() : new Date(p.date);
         const portfolio = portfolios.find(pf => pf.id === p.portfolioId);
-        const share = getProfitShareDetails(p);
-        const isFullyDistributed = share.partnerPending <= 0.0001;
-        const change = getProfitChange(profits, index);
+        const ticker = p.ticker || portfolio?.name || '-';
+        const roce = p.workingCapital > 0 ? (p.netProfit / p.workingCapital * 100) : null;
 
         return `
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <td style="padding: var(--space-md);">
-                    <div style="font-weight: 600;">${formatDate(date)}</div>
-                    <div style="font-size: var(--font-size-xs); color: var(--text-muted);">${p.ticker || portfolio?.name || '-'}</div>
-                </td>
-                <td style="padding: var(--space-md);">
-                    <div style="font-weight: 800; color: var(--green);">+${formatCurrency(p.netProfit, p.currency)}</div>
-                    ${renderProfitChangeLine(change)}
-                    ${p.workingCapital > 0 ? `<div style="font-size: var(--font-size-xs); color: var(--purple);">ROCE: ${formatPercent(p.netProfit / p.workingCapital * 100, false)}</div>` : ''}
-                </td>
-                <td style="padding: var(--space-md);">
-                    <span style="
-                        padding: 4px 8px;
-                        background: ${isFullyDistributed ? 'var(--green-bg)' : 'var(--orange-bg)'};
-                        color: ${isFullyDistributed ? 'var(--green)' : 'var(--orange)'};
-                        border-radius: var(--radius-sm);
-                        font-size: var(--font-size-xs);
-                    ">
-                        ${isFullyDistributed ? 'تم السداد كاملًا' : `متبقي ${formatCurrency(share.partnerPending, p.currency)}`}
-                    </span>
-                </td>
-                <td style="padding: var(--space-md); text-align: left;">
-                    <button class="btn-icon" onclick="openEditProfitModal('${p.id}')" title="تعديل">
-                        <i class="fa-solid fa-pen-to-square" style="color: var(--blue);"></i>
-                    </button>
-                    <button class="btn-icon" onclick="deleteProfitRecord('${p.id}')" title="حذف">
-                        <i class="fa-solid fa-trash" style="color: var(--red);"></i>
-                    </button>
-                </td>
-            </tr>
+            <div class="glass-card profit-record-card">
+                <div class="profit-record-row">
+                    <div class="profit-record-main">
+                        <div class="profit-record-name">${ticker}</div>
+                        <div class="profit-record-date">${formatDate(date)} · ${portfolio?.name || ''}</div>
+                    </div>
+                    <div class="profit-record-amount">
+                        <div class="profit-record-value num">+${formatCurrency(p.netProfit, p.currency)}</div>
+                        ${p.workingCapital > 0 ? `<div style="font-size: 0.62rem; color: var(--text-muted); margin-top: 0.1rem;" class="num">رأس المال: ${formatCurrency(p.workingCapital, p.currency)}</div>` : ''}
+                        ${roce !== null ? `<div class="profit-record-roce num" style="color: ${roce >= 5 ? 'var(--green)' : roce >= 0 ? 'var(--gold)' : 'var(--red)'};">ROCE ${formatPercent(roce, false)}</div>` : ''}
+                    </div>
+                    <div class="profit-record-actions">
+                        <button class="btn-icon" onclick="openEditProfitModal('${p.id}')" title="تعديل" style="width:32px;height:32px;">
+                            <i class="fa-solid fa-pen-to-square" style="color: var(--blue); font-size: 0.8rem;"></i>
+                        </button>
+                        <button class="btn-icon" onclick="deleteProfitRecord('${p.id}')" title="حذف" style="width:32px;height:32px;">
+                            <i class="fa-solid fa-trash" style="color: var(--red); font-size: 0.8rem;"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
         `;
     }).join('');
 
-    return `
-        <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="background: var(--bg-card);">
-                        <th style="padding: var(--space-md); text-align: right; font-size: var(--font-size-sm); color: var(--text-muted);">التاريخ</th>
-                        <th style="padding: var(--space-md); text-align: right; font-size: var(--font-size-sm); color: var(--text-muted);">المبلغ</th>
-                        <th style="padding: var(--space-md); text-align: right; font-size: var(--font-size-sm); color: var(--text-muted);">الحالة</th>
-                        <th style="padding: var(--space-md);"></th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-    `;
+    return `<div class="profit-records-list">${rows}</div>`;
 }
 
 function renderDistributionHistory(distributions) {
@@ -347,6 +298,7 @@ function renderDistributionHistory(distributions) {
         const date = item.date?.toDate ? item.date.toDate() : new Date(item.date);
         const dateLabel = Number.isNaN(date.getTime()) ? '-' : formatDate(date);
         const note = (item.note || '').toString().trim();
+        const isLegacy = String(item.id || '').startsWith('legacy-inferred-');
 
         return `
             <tr style="border-bottom: 1px solid var(--border-color);">
@@ -355,11 +307,15 @@ function renderDistributionHistory(distributions) {
                 <td style="padding: var(--space-md); color: var(--green);">${formatCurrency(item.appliedEGP || 0)}</td>
                 <td style="padding: var(--space-md); color: var(--orange);">${formatCurrency(item.unappliedEGP || 0)}</td>
                 <td style="padding: var(--space-md);">${item.affectedRecords || 0}</td>
-                <td style="padding: var(--space-md);">${note || '-'}</td>
+                <td style="padding: var(--space-md);">
+                    ${note || '-'}
+                    ${isLegacy ? '<div style="font-size:var(--font-size-xs); color:var(--text-muted);">سجل مرحّل</div>' : ''}
+                </td>
                 <td style="padding: var(--space-md); text-align:left;">
+                    ${isLegacy ? '' : `
                     <button class="btn-icon" onclick="openEditDistributionModal('${item.id}')" title="تعديل">
                         <i class="fa-solid fa-pen-to-square" style="color: var(--blue);"></i>
-                    </button>
+                    </button>`}
                     <button class="btn-icon" onclick="deleteDistributionRecord('${item.id}')" title="حذف">
                         <i class="fa-solid fa-trash" style="color: var(--red);"></i>
                     </button>

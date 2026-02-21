@@ -74,30 +74,61 @@ if (isIOS && !isStandalone && !localStorage.getItem('pwa-dismissed')) {
 // ==========================================
 // Theme Toggle
 // ==========================================
+const THEME_SEQUENCE = ['dark', 'diamond', 'light'];
+const THEME_META_COLORS = {
+    dark: '#0a0a0a',
+    diamond: '#0a1220',
+    light: '#f5f5f5'
+};
+
+function applyTheme(theme) {
+    const safeTheme = THEME_SEQUENCE.includes(theme) ? theme : 'dark';
+    document.documentElement.setAttribute('data-theme', safeTheme);
+    localStorage.setItem('theme', safeTheme);
+    updateThemeIcon(safeTheme);
+    updateThemeMetaColor(safeTheme);
+}
+
 function initTheme() {
     const saved = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const theme = saved || (prefersDark ? 'dark' : 'light');
-
-    document.documentElement.setAttribute('data-theme', theme);
-    updateThemeIcon(theme);
+    const fallback = prefersDark ? 'dark' : 'light';
+    const theme = THEME_SEQUENCE.includes(saved) ? saved : fallback;
+    applyTheme(theme);
 }
 
 function toggleTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'dark';
-    const next = current === 'dark' ? 'light' : 'dark';
+    const index = THEME_SEQUENCE.indexOf(current);
+    const next = THEME_SEQUENCE[(index + 1 + THEME_SEQUENCE.length) % THEME_SEQUENCE.length];
 
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    updateThemeIcon(next);
+    applyTheme(next);
+    if (next === 'diamond') {
+        showToast('Diamond Theme', 'success');
+        return;
+    }
 
     showToast(next === 'dark' ? 'الوضع الداكن' : 'الوضع الفاتح', 'success');
 }
 
 function updateThemeIcon(theme) {
     const icon = document.getElementById('theme-icon');
-    if (icon) {
-        icon.className = theme === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+    if (!icon) return;
+    if (theme === 'dark') {
+        icon.className = 'fa-solid fa-moon';
+        return;
+    }
+    if (theme === 'light') {
+        icon.className = 'fa-solid fa-sun';
+        return;
+    }
+    icon.className = 'fa-solid fa-gem';
+}
+
+function updateThemeMetaColor(theme) {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+        meta.setAttribute('content', THEME_META_COLORS[theme] || THEME_META_COLORS.dark);
     }
 }
 
@@ -273,7 +304,11 @@ document.getElementById('guest-login-btn')?.addEventListener('click', async () =
 });
 
 // Auth State Observer
+let authResolved = false;
+const AUTH_TIMEOUT_MS = 10000;
+
 onAuthStateChanged(auth, async (user) => {
+    authResolved = true;
     if (user) {
         setState({ user });
         showApp(user);
@@ -283,6 +318,16 @@ onAuthStateChanged(auth, async (user) => {
         showAuthScreen();
     }
 });
+
+// Failsafe: if Firebase never responds, show auth screen anyway
+setTimeout(() => {
+    if (!authResolved) {
+        console.warn('⚠️ Firebase auth timeout — showing auth screen');
+        document.getElementById('loading-screen')?.classList.add('hidden');
+        showAuthScreen();
+        showToast('تحقق من اتصالك بالإنترنت', 'error');
+    }
+}, AUTH_TIMEOUT_MS);
 
 // ==========================================
 // Bottom Navigation
@@ -352,3 +397,4 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 console.log('🚀 Wealth Commander V4 Loaded');
+
