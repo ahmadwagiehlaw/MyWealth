@@ -348,6 +348,113 @@ function initNavigation() {
 }
 
 // ==========================================
+// Notifications System
+// ==========================================
+document.getElementById('notifications-toggle')?.addEventListener('click', () => {
+    const panel = document.getElementById('notifications-panel');
+    if (panel) panel.classList.toggle('hidden');
+});
+
+// Close notifications when clicking outside
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('notifications-panel');
+    const toggle = document.getElementById('notifications-toggle');
+    if (panel && !panel.classList.contains('hidden') && !panel.contains(e.target) && !toggle.contains(e.target)) {
+        panel.classList.add('hidden');
+    }
+});
+
+/**
+ * Update notifications panel with contextual alerts
+ * Called from dashboard after data is loaded
+ */
+window.updateNotifications = (data) => {
+    const { totalNetProfits, remainingAfterPaid, partnerEnabled, bankComparison, unrealizedPct, portfolioCount } = data;
+    const notifications = [];
+
+    // Profit available notification
+    const profitAmount = partnerEnabled ? remainingAfterPaid : totalNetProfits;
+    if (profitAmount > 0) {
+        notifications.push({
+            icon: 'fa-sack-dollar',
+            color: 'var(--green)',
+            text: `لديك ${formatNumber(profitAmount)} ج.م أرباح صافية متاحة`
+        });
+    }
+
+    // Bank beaten
+    if (bankComparison?.beatBank && bankComparison.percentageBetter > 0) {
+        notifications.push({
+            icon: 'fa-crown',
+            color: 'var(--gold)',
+            text: `تفوقت على البنك بنسبة ${bankComparison.percentageBetter.toFixed(0)}%`
+        });
+    } else if (bankComparison && !bankComparison.beatBank && bankComparison.bankProfit > 0) {
+        notifications.push({
+            icon: 'fa-landmark',
+            color: 'var(--orange)',
+            text: `البنك يتفوق — حاول تحسين أدائك`
+        });
+    }
+
+    // Unrealized P&L alert
+    if (unrealizedPct < -10) {
+        notifications.push({
+            icon: 'fa-triangle-exclamation',
+            color: 'var(--red)',
+            text: `تراجع ${unrealizedPct.toFixed(1)}% في القيمة السوقية — راجع محافظك`
+        });
+    } else if (unrealizedPct > 15) {
+        notifications.push({
+            icon: 'fa-arrow-trend-up',
+            color: 'var(--green)',
+            text: `نمو ممتاز ${unrealizedPct.toFixed(1)}% — فكر في جني بعض الأرباح`
+        });
+    }
+
+    // No portfolios
+    if (portfolioCount === 0) {
+        notifications.push({
+            icon: 'fa-wallet',
+            color: 'var(--blue)',
+            text: 'ابدأ رحلتك — أضف محفظتك الأولى الآن!'
+        });
+    }
+
+    // Update badge
+    const badge = document.getElementById('notifications-badge');
+    if (badge) {
+        if (notifications.length > 0) {
+            badge.textContent = notifications.length;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    // Update list
+    const list = document.getElementById('notifications-list');
+    if (list) {
+        if (notifications.length === 0) {
+            list.innerHTML = '<div class="notif-empty"><i class="fa-solid fa-check-circle" style="color:var(--green); margin-bottom:0.3rem; font-size:1.2rem;"></i><br>لا توجد تنبيهات جديدة</div>';
+        } else {
+            list.innerHTML = notifications.map(n => `
+                <div class="notif-item">
+                    <div class="notif-icon" style="background: color-mix(in srgb, ${n.color} 15%, transparent); color: ${n.color};">
+                        <i class="fa-solid ${n.icon}"></i>
+                    </div>
+                    <div class="notif-text">${n.text}</div>
+                </div>
+            `).join('');
+        }
+    }
+};
+
+function formatNumber(n) {
+    return new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(n);
+}
+
+// ==========================================
 // App Initialization
 // ==========================================
 async function initApp() {

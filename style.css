@@ -310,6 +310,18 @@ body::before {
     }
 }
 
+@keyframes pulse-soft {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.75;
+    }
+}
+
 /* === Auth Screen === */
 .auth-screen {
     position: fixed;
@@ -612,9 +624,10 @@ body::before {
 
 .header-left,
 .header-right {
-    width: 50px;
+    width: 80px;
     display: flex;
     align-items: center;
+    gap: 0.25rem;
 }
 
 .header-right {
@@ -632,6 +645,93 @@ body::before {
 
 .app-title i {
     font-size: 1.2rem;
+}
+
+/* Notification Badge */
+.notif-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    background: var(--red);
+    color: #fff;
+    font-size: 0.55rem;
+    font-weight: 800;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    line-height: 1;
+}
+
+/* Notifications Panel */
+.notifications-panel {
+    position: fixed;
+    top: 60px;
+    left: var(--space-md);
+    right: var(--space-md);
+    max-width: 420px;
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 1000;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    padding: 0;
+}
+
+.notif-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.notif-list {
+    padding: 0.5rem;
+}
+
+.notif-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 0.3rem;
+    transition: background 0.2s;
+}
+
+.notif-item:hover {
+    background: color-mix(in srgb, var(--gold) 8%, transparent);
+}
+
+.notif-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.notif-text {
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
+.notif-empty {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
 }
 
 .user-avatar {

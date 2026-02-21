@@ -14,6 +14,7 @@ const state = {
         baseCurrency: 'EGP',
         exchangeRates: { USD: 50.5 },
         bankBenchmark: 2.0,
+        partnerEnabled: false,
         partnerSplitRatio: 0.5,
         theme: 'dark'
     },

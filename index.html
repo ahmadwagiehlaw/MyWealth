@@ -138,13 +138,17 @@
         <!-- Header -->
         <header class="app-header">
             <div class="header-left">
+                <button id="notifications-toggle" class="btn-icon" title="التنبيهات" style="position:relative;">
+                    <i class="fa-solid fa-bell"></i>
+                    <span id="notifications-badge" class="notif-badge hidden">0</span>
+                </button>
                 <button id="theme-toggle" class="btn-icon" title="تبديل المظهر">
                     <i class="fa-solid fa-moon" id="theme-icon"></i>
                 </button>
             </div>
             <div class="header-center">
                 <h1 class="app-title">
-                    <i class="fa-solid fa-gem"></i>
+                    <i class="fa-solid fa-coins"></i>
                     <span>ثروتي</span>
                 </h1>
             </div>
@@ -154,6 +158,20 @@
                 </div>
             </div>
         </header>
+
+        <!-- Notifications Panel -->
+        <div id="notifications-panel" class="notifications-panel hidden">
+            <div class="notif-panel-header">
+                <span style="font-weight:700; font-size: var(--font-size-md);"><i class="fa-solid fa-bell"
+                        style="color:var(--gold);"></i> التنبيهات</span>
+                <button class="btn-icon"
+                    onclick="document.getElementById('notifications-panel').classList.add('hidden')"
+                    style="font-size:0.9rem;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div id="notifications-list" class="notif-list"></div>
+        </div>
 
         <!-- Main Content Area -->
         <main id="main-content" class="main-content">
@@ -168,9 +186,6 @@
             <section id="portfolios-view" class="view">
                 <div class="view-header">
                     <h2 class="section-title"><i class="fa-solid fa-vault"></i> المحافظ</h2>
-                    <button class="btn btn-primary" id="add-portfolio-btn">
-                        <i class="fa-solid fa-plus"></i> محفظة جديدة
-                    </button>
                 </div>
                 <div id="portfolios-container" class="container"></div>
             </section>

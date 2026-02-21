@@ -14,6 +14,7 @@ import {
 } from '../modules/portfolios.js';
 import {
     getProfits,
+    getTotalNetProfits,
     getTotalPartnerShare,
     getUndistributedPartnerShare,
     getTotalDistributedToPartner,
@@ -40,13 +41,15 @@ export async function renderDashboard() {
         await Promise.all([getPortfolios(), getPortfolioHistory(), getProfits()]);
 
         const { portfolios, profits, settings } = getState();
+        const partnerEnabled = settings.partnerEnabled || false;
 
         const totalMarketValue = getTotalMarketValue();
         const totalInvested = getTotalInvestedCapital();
-        const expectedPartnerShare = getTotalPartnerShare();
-        const paidToPartner = getTotalDistributedToPartner();
-        const pendingToPartner = getUndistributedPartnerShare();
-        const remainingAfterPaid = getRemainingProfitsAfterDistribution();
+        const totalNetProfits = getTotalNetProfits();
+        const expectedPartnerShare = partnerEnabled ? getTotalPartnerShare() : 0;
+        const paidToPartner = partnerEnabled ? getTotalDistributedToPartner() : 0;
+        const pendingToPartner = partnerEnabled ? getUndistributedPartnerShare() : 0;
+        const remainingAfterPaid = partnerEnabled ? getRemainingProfitsAfterDistribution() : totalNetProfits;
 
         const months = profits.length > 0 ? getMonthsSpan(profits) : 1;
         const bankComparison = compareToBankBenchmark(months);
@@ -55,9 +58,8 @@ export async function renderDashboard() {
         const smartInsight = generateSmartInsight(totalMarketValue, totalInvested, remainingAfterPaid, profits, portfolios, bankComparison);
 
         container.innerHTML = `
-            ${renderSmartInsight(smartInsight)}
-            ${renderHeroCard(remainingAfterPaid, pendingToPartner, paidToPartner)}
-            ${renderStatCards(totalMarketValue, totalInvested, expectedPartnerShare)}
+            ${renderHeroCard(totalMarketValue, totalNetProfits, remainingAfterPaid, pendingToPartner, paidToPartner, partnerEnabled)}
+            ${renderStatCards(totalMarketValue, totalInvested, expectedPartnerShare, totalNetProfits, partnerEnabled)}
             ${renderEvolutionChart()}
             ${renderBeatBankGauge(bankComparison, settings.bankBenchmark, months)}
             ${renderDistributionChart(portfolios)}
@@ -67,6 +69,19 @@ export async function renderDashboard() {
         bindEvolutionFilters();
         initTotalEvolutionChart();
         initDistributionChart();
+
+        // Populate notification bell
+        const unrealizedPct = totalInvested > 0 ? ((totalMarketValue - totalInvested) / totalInvested * 100) : 0;
+        if (window.updateNotifications) {
+            window.updateNotifications({
+                totalNetProfits,
+                remainingAfterPaid,
+                partnerEnabled,
+                bankComparison,
+                unrealizedPct,
+                portfolioCount: portfolios.length
+            });
+        }
     } catch (error) {
         console.error('Dashboard Error:', error);
         container.innerHTML = `
@@ -130,25 +145,61 @@ function renderSmartInsight(insight) {
 // Component Renderers
 // ==========================================
 
-function renderHeroCard(remainingAfterPaid, pendingToPartner, paidToPartner) {
+function renderHeroCard(totalMarketValue, totalNetProfits, remainingAfterPaid, pendingToPartner, paidToPartner, partnerEnabled) {
+    const partnerMeta = partnerEnabled ? `
+        <div class="dashboard-hero-meta">
+            <span><i class="fa-solid fa-clock"></i> متبقي للشريك <span class="num">${formatCurrency(pendingToPartner)}</span></span>
+            <span><i class="fa-solid fa-circle-check"></i> المدفوع فعليا <span class="num">${formatCurrency(paidToPartner)}</span></span>
+        </div>
+    ` : '';
+
     return `
         <div class="glass-card hero-card dashboard-hero">
-            <div class="dashboard-hero-label">
-                <i class="fa-solid fa-sack-dollar"></i>
-                الأرباح المتبقية بعد التوزيع الفعلي
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.4rem;">
+                <div>
+                    <div style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 0.15rem;">إجمالي القيمة السوقية</div>
+                    <div class="num" style="font-size: var(--font-size-xl); font-weight: 800; color: var(--gold);">${formatCurrency(totalMarketValue)}</div>
+                </div>
+                <div style="text-align: left;">
+                    <div style="font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 0.15rem;">إجمالي الأرباح المحققة</div>
+                    <div class="num" style="font-size: var(--font-size-lg); font-weight: 700; color: ${totalNetProfits >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(totalNetProfits)}</div>
+                </div>
             </div>
-            <div class="dashboard-hero-value num">${formatCurrency(remainingAfterPaid)}</div>
-            <div class="dashboard-hero-meta">
-                <span><i class="fa-solid fa-clock"></i> متبقي للشريك <span class="num">${formatCurrency(pendingToPartner)}</span></span>
-                <span><i class="fa-solid fa-circle-check"></i> المدفوع فعليا <span class="num">${formatCurrency(paidToPartner)}</span></span>
-            </div>
+            ${partnerEnabled ? `
+                <div style="border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.3rem;">
+                    <div class="dashboard-hero-label" style="margin-bottom: 0.15rem;">
+                        <i class="fa-solid fa-sack-dollar"></i>
+                        الأرباح المتبقية بعد التوزيع
+                    </div>
+                    <div class="dashboard-hero-value num" style="font-size: var(--font-size-lg);">${formatCurrency(remainingAfterPaid)}</div>
+                </div>
+            ` : ''}
+            ${partnerMeta}
         </div>
     `;
 }
 
-function renderStatCards(marketValue, invested, partnerShare) {
+function renderStatCards(marketValue, invested, partnerShare, totalNetProfits, partnerEnabled) {
     const unrealized = marketValue - invested;
     const unrealizedPercent = invested > 0 ? (unrealized / invested * 100) : 0;
+
+    const thirdCard = partnerEnabled ? `
+        <div class="glass-card dashboard-stat-card">
+            <div class="dashboard-stat-icon" style="background: var(--purple-bg); color: var(--purple);">
+                <i class="fa-solid fa-handshake"></i>
+            </div>
+            <div class="dashboard-stat-value num" style="color:var(--purple);">${formatCompact(partnerShare)}</div>
+            <div class="dashboard-stat-label">نصيب الشريك</div>
+        </div>
+    ` : `
+        <div class="glass-card dashboard-stat-card">
+            <div class="dashboard-stat-icon" style="background: ${totalNetProfits >= 0 ? 'var(--green-bg)' : 'var(--red-bg)'}; color: ${totalNetProfits >= 0 ? 'var(--green)' : 'var(--red)'};">
+                <i class="fa-solid fa-coins"></i>
+            </div>
+            <div class="dashboard-stat-value num" style="color:${totalNetProfits >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCompact(totalNetProfits)}</div>
+            <div class="dashboard-stat-label">صافي الأرباح</div>
+        </div>
+    `;
 
     return `
         <div class="dashboard-stats-row dashboard-stats-row-tight">
@@ -168,13 +219,7 @@ function renderStatCards(marketValue, invested, partnerShare) {
                 <div class="dashboard-stat-label">غير محقق</div>
             </div>
 
-            <div class="glass-card dashboard-stat-card">
-                <div class="dashboard-stat-icon" style="background: var(--purple-bg); color: var(--purple);">
-                    <i class="fa-solid fa-handshake"></i>
-                </div>
-                <div class="dashboard-stat-value num" style="color:var(--purple);">${formatCompact(partnerShare)}</div>
-                <div class="dashboard-stat-label">نصيب الشريك</div>
-            </div>
+            ${thirdCard}
         </div>
     `;
 }

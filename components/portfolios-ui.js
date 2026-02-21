@@ -105,15 +105,17 @@ function renderPortfolioCard(portfolio) {
         ? '<span class="portfolio-currency-badge usd">$</span>'
         : '<span class="portfolio-currency-badge egp">ج.م</span>';
 
-    const typeIcon = portfolio.type === 'BROKERAGE' ? 'fa-chart-line'
+    const typeIcon = portfolio.icon || (portfolio.type === 'BROKERAGE' ? 'fa-chart-line'
         : portfolio.type === 'FUND' ? 'fa-piggy-bank'
             : portfolio.type === 'FITNESS' ? 'fa-dumbbell'
-                : 'fa-building-columns';
+                : portfolio.type === 'PLATFORM' ? 'fa-layer-group'
+                    : 'fa-building-columns');
 
     const typeLabel = portfolio.type === 'BROKERAGE' ? 'وسيط'
         : portfolio.type === 'FUND' ? 'صندوق'
             : portfolio.type === 'FITNESS' ? 'تحدي رياضي'
-                : 'بنك';
+                : portfolio.type === 'PLATFORM' ? 'منصة استثمار'
+                    : 'بنك';
 
     return `
         <div class="glass-card portfolio-card" onclick="openPortfolioDetails('${portfolio.id}')">
@@ -183,6 +185,7 @@ window.openAddPortfolioModal = () => {
                     <select class="form-select" name="type">
                         <option value="BROKERAGE">وسيط</option>
                         <option value="FUND">صندوق استثماري</option>
+                        <option value="PLATFORM">منصة استثمار</option>
                         <option value="FITNESS">تحدي رياضي</option>
                         <option value="BANK">بنك</option>
                     </select>
@@ -424,9 +427,17 @@ window.openEditPortfolioInfoModal = (id) => {
     const typeOptions = [
         { value: 'BROKERAGE', label: 'وسيط' },
         { value: 'FUND', label: 'صندوق استثماري' },
+        { value: 'PLATFORM', label: 'منصة استثمار' },
         { value: 'FITNESS', label: 'تحدي رياضي' },
         { value: 'BANK', label: 'بنك' }
     ];
+
+    const iconOptions = [
+        'fa-chart-line', 'fa-piggy-bank', 'fa-layer-group', 'fa-building-columns',
+        'fa-dumbbell', 'fa-coins', 'fa-wallet', 'fa-landmark',
+        'fa-gem', 'fa-sack-dollar', 'fa-money-bill-trend-up', 'fa-bolt'
+    ];
+    const currentIcon = portfolio.icon || '';
 
     const typeSelect = typeOptions.map(o =>
         `<option value="${o.value}" ${portfolio.type === o.value ? 'selected' : ''}>${o.label}</option>`
@@ -458,6 +469,21 @@ window.openEditPortfolioInfoModal = (id) => {
             <div class="form-group">
                 <label class="form-label">رأس المال المبدئي</label>
                 <input type="number" class="form-input" name="initialCapital" value="${parseFloat((portfolio.initialCapital || 0).toFixed(2))}" step="0.01">
+            </div>
+
+            <div class="form-group" style="margin-top: var(--space-xs);">
+                <label class="form-label" style="margin-bottom: 0.4rem;">أيقونة المحفظة</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;" id="icon-picker-grid">
+                    ${iconOptions.map(ico => `
+                        <button type="button" class="btn-icon icon-pick-btn ${currentIcon === ico ? 'active' : ''}" 
+                            data-icon="${ico}" 
+                            style="width:38px; height:38px; border-radius: var(--radius-md); border: 2px solid ${currentIcon === ico ? 'var(--gold)' : 'var(--border-color)'}; font-size: 0.9rem;" 
+                            onclick="document.querySelectorAll('.icon-pick-btn').forEach(b=>{b.style.borderColor='var(--border-color)';b.classList.remove('active');}); this.style.borderColor='var(--gold)'; this.classList.add('active');">
+                            <i class="fa-solid ${ico}"></i>
+                        </button>
+                    `).join('')}
+                </div>
+                <input type="hidden" name="icon" value="${currentIcon}">
             </div>
 
             <div class="form-group" style="margin-top: var(--space-xs);">
@@ -495,7 +521,8 @@ window.submitEditPortfolioInfo = async (id) => {
         currency: formData.get('currency'),
         type: formData.get('type'),
         initialCapital: parseFloat(formData.get('initialCapital')) || 0,
-        excludeFromTotal: form.querySelector('[name="excludeFromTotal"]')?.checked || false
+        excludeFromTotal: form.querySelector('[name="excludeFromTotal"]')?.checked || false,
+        icon: form.querySelector('.icon-pick-btn.active')?.dataset?.icon || ''
     };
 
     try {
