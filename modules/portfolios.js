@@ -180,6 +180,7 @@ export async function createPortfolio(data) {
             totalDeposits: 0,
             totalWithdrawals: 0,
             currentValue: initialCapital,
+            excludeFromTotal: data.excludeFromTotal || false,
             createdAt: now,
             updatedAt: now
         };
@@ -214,8 +215,11 @@ export async function updatePortfolio(id, data) {
         const now = Timestamp.now();
         const docRef = doc(db, COLLECTION, id);
 
+        // Extract snapshotDate so it doesn't persist to the portfolio document
+        const { snapshotDate, ...docData } = data;
+
         await updateDoc(docRef, {
-            ...data,
+            ...docData,
             updatedAt: now
         });
 
@@ -229,7 +233,7 @@ export async function updatePortfolio(id, data) {
                 portfolioId: id,
                 value: nextValue,
                 currency: data.currency || existing?.currency || 'EGP',
-                date: data.snapshotDate || now,
+                date: snapshotDate || now,
                 source: 'update'
             });
         }
@@ -290,7 +294,9 @@ export async function deletePortfolio(id) {
  */
 export function getTotalMarketValue() {
     const { portfolios } = getState();
-    return portfolios.reduce((sum, p) => sum + toEGP(toNumber(p.currentValue), p.currency), 0);
+    return portfolios
+        .filter(p => !p.excludeFromTotal)
+        .reduce((sum, p) => sum + toEGP(toNumber(p.currentValue), p.currency), 0);
 }
 
 /**
@@ -298,10 +304,12 @@ export function getTotalMarketValue() {
  */
 export function getTotalInvestedCapital() {
     const { portfolios } = getState();
-    return portfolios.reduce((sum, p) => {
-        const invested = toNumber(p.initialCapital) + toNumber(p.totalDeposits) - toNumber(p.totalWithdrawals);
-        return sum + toEGP(invested, p.currency);
-    }, 0);
+    return portfolios
+        .filter(p => !p.excludeFromTotal)
+        .reduce((sum, p) => {
+            const invested = toNumber(p.initialCapital) + toNumber(p.totalDeposits) - toNumber(p.totalWithdrawals);
+            return sum + toEGP(invested, p.currency);
+        }, 0);
 }
 
 /**
@@ -316,12 +324,14 @@ export function getUnrealizedPL() {
  */
 export function getPortfolioDistribution() {
     const { portfolios } = getState();
-    return portfolios.map(p => ({
-        name: p.name,
-        value: toEGP(toNumber(p.currentValue), p.currency),
-        currency: p.currency,
-        type: p.type
-    }));
+    return portfolios
+        .filter(p => !p.excludeFromTotal)
+        .map(p => ({
+            name: p.name,
+            value: toEGP(toNumber(p.currentValue), p.currency),
+            currency: p.currency,
+            type: p.type
+        }));
 }
 
 function getRangeStart(date, range) {

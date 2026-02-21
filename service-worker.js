@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wealth-commander-v4';
+const CACHE_NAME = 'tharwati-v5';
 const STATIC_ASSETS = [
     '/',
     '/index.html',

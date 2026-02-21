@@ -1,11 +1,11 @@
 {
-  "name": "Wealth Commander",
-  "short_name": "WealthCmd",
-  "description": "Personal Wealth Management System - Track, Analyze, Profit",
+  "name": "ثروتي",
+  "short_name": "ثروتي",
+  "description": "نظام إدارة الثروة الشخصية",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",
-  "theme_color": "#ffd700",
+  "theme_color": "#1dc9ff",
   "orientation": "portrait-primary",
   "icons": [
     {

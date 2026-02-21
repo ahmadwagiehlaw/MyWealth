@@ -127,7 +127,7 @@ function renderPortfolioCard(portfolio) {
                             <div class="portfolio-name">${portfolio.name}</div>
                             ${currencyBadge}
                         </div>
-                        <div class="portfolio-type">${typeLabel}</div>
+                        <div class="portfolio-type">${typeLabel}${portfolio.excludeFromTotal ? ' <span style="color:var(--orange); font-size:0.6rem;">● مستبعدة</span>' : ''}</div>
                     </div>
                 </div>
                 <div class="portfolio-actions">
@@ -193,6 +193,13 @@ window.openAddPortfolioModal = () => {
                 <label class="form-label">رأس المال المبدئي</label>
                 <input type="number" class="form-input" name="initialCapital" placeholder="0" min="0" step="0.01">
             </div>
+
+            <div class="form-group" style="margin-top: var(--space-sm);">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-secondary);">
+                    <input type="checkbox" name="excludeFromTotal" style="width: 18px; height: 18px; accent-color: var(--gold);">
+                    استبعاد من الإجمالي
+                </label>
+            </div>
         </form>
     `;
 
@@ -215,7 +222,8 @@ window.submitAddPortfolio = async () => {
         name: formData.get('name'),
         currency: formData.get('currency'),
         type: formData.get('type'),
-        initialCapital: formData.get('initialCapital')
+        initialCapital: formData.get('initialCapital'),
+        excludeFromTotal: form.querySelector('[name="excludeFromTotal"]')?.checked || false
     };
 
     if (!data.name) {
@@ -227,30 +235,52 @@ window.submitAddPortfolio = async () => {
         showLoading();
         await createPortfolio(data);
         closeModal();
-        showToast('تم إضافة المحفظة بنجاح', 'success');
+        showToast('تم إنشاء المحفظة بنجاح', 'success');
         renderPortfolios();
-    } catch (error) {
-        showToast('فشل في إضافة المحفظة', 'error');
+    } catch {
+        showToast('فشل في إنشاء المحفظة', 'error');
     } finally {
         hideLoading();
     }
 };
 
 window.openPortfolioDetails = async (id) => {
-    const { portfolios } = getState();
+    // Ensure history is loaded before reading state
+    await getPortfolioHistory();
+    const { portfolios, portfolioHistory } = getState();
     const portfolio = portfolios.find(p => p.id === id);
     if (!portfolio) return;
 
     const invested = (portfolio.initialCapital || 0) + (portfolio.totalDeposits || 0) - (portfolio.totalWithdrawals || 0);
     const pnl = portfolio.currentValue - invested;
     const pnlPercent = invested > 0 ? (pnl / invested * 100) : 0;
+    const today = new Date().toISOString().split('T')[0];
+
+    // Build valuation history for this portfolio
+    const history = (portfolioHistory || [])
+        .filter(h => h.portfolioId === id)
+        .map(h => {
+            const d = h.date?.toDate ? h.date.toDate() : new Date(h.date);
+            return { ...h, dateObj: d };
+        })
+        .filter(h => !Number.isNaN(h.dateObj.getTime()))
+        .sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
+
+    const historyRows = history.length > 0
+        ? history.slice(0, 15).map(h => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding: 0.4rem 0; border-bottom: 1px solid var(--border-color);">
+                <span style="font-size: var(--font-size-xs); color: var(--text-muted);">${formatDate(h.dateObj)}</span>
+                <span class="num" style="font-weight: 700; font-size: var(--font-size-sm);">${formatCurrency(h.value, portfolio.currency)}</span>
+            </div>
+        `).join('')
+        : '<div style="text-align:center; padding: 0.5rem; color: var(--text-muted); font-size: var(--font-size-xs);">لا يوجد سجل بعد</div>';
 
     const content = `
         <div style="text-align: center; margin-bottom: var(--space-md);">
-            <div style="font-size: var(--font-size-2xl); font-weight: 800; color: var(--gold);">
+            <div class="num" style="font-size: var(--font-size-2xl); font-weight: 800; color: var(--gold);">
                 ${formatCurrency(portfolio.currentValue, portfolio.currency)}
             </div>
-            <div style="font-size: var(--font-size-sm); color: ${pnl >= 0 ? 'var(--green)' : 'var(--red)'};">
+            <div class="num" style="font-size: var(--font-size-sm); color: ${pnl >= 0 ? 'var(--green)' : 'var(--red)'}; margin-top: 0.2rem;">
                 ${pnl >= 0 ? '+' : ''}${formatCurrency(pnl, portfolio.currency)} (${formatPercent(pnlPercent)})
             </div>
         </div>
@@ -258,18 +288,24 @@ window.openPortfolioDetails = async (id) => {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm); margin-bottom: var(--space-md);">
             <div class="glass-card" style="padding: var(--space-sm); text-align: center;">
                 <div style="font-size: var(--font-size-xs); color: var(--text-muted);">المستثمر</div>
-                <div style="font-weight: 700;">${formatCurrency(invested, portfolio.currency)}</div>
+                <div class="num" style="font-weight: 700;">${formatCurrency(invested, portfolio.currency)}</div>
             </div>
             <div class="glass-card" style="padding: var(--space-sm); text-align: center;">
                 <div style="font-size: var(--font-size-xs); color: var(--text-muted);">الإيداعات</div>
-                <div style="font-weight: 700;">${formatCurrency(portfolio.totalDeposits || 0, portfolio.currency)}</div>
+                <div class="num" style="font-weight: 700;">${formatCurrency(portfolio.totalDeposits || 0, portfolio.currency)}</div>
             </div>
         </div>
 
         <form id="update-portfolio-form">
-            <div class="form-group">
-                <label class="form-label">تحديث القيمة السوقية</label>
-                <input type="number" class="form-input" name="currentValue" value="${portfolio.currentValue}" step="0.01">
+            <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                    <label class="form-label">تحديث القيمة السوقية</label>
+                    <input type="number" class="form-input" name="currentValue" value="${parseFloat(portfolio.currentValue.toFixed(2))}" step="0.01">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label">التاريخ</label>
+                    <input type="date" class="form-input" name="snapshotDate" value="${today}">
+                </div>
             </div>
 
             <div class="form-row">
@@ -282,12 +318,33 @@ window.openPortfolioDetails = async (id) => {
                     <input type="number" class="form-input" name="withdrawal" placeholder="0" min="0" step="0.01">
                 </div>
             </div>
+
+            <div class="form-group" style="margin-top: var(--space-xs);">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-secondary);">
+                    <input type="checkbox" name="excludeFromTotal" ${portfolio.excludeFromTotal ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);">
+                    استبعاد من الإجمالي
+                </label>
+            </div>
         </form>
+
+        <!-- Valuation History Log -->
+        <div style="margin-top: var(--space-md); border-top: 1px solid var(--border-color); padding-top: var(--space-sm);">
+            <div style="font-size: var(--font-size-sm); font-weight: 700; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="fa-solid fa-clock-rotate-left" style="color: var(--gold); font-size: 0.8rem;"></i>
+                سجل التقييم
+            </div>
+            <div style="max-height: 150px; overflow-y: auto;">
+                ${historyRows}
+            </div>
+        </div>
     `;
 
     const footer = `
         <button class="btn" style="background: var(--red-bg); color: var(--red);" onclick="confirmDeletePortfolio('${id}')">
             <i class="fa-solid fa-trash"></i>
+        </button>
+        <button class="btn" style="background: var(--blue-bg); color: var(--blue);" onclick="openEditPortfolioInfoModal('${id}')" title="تعديل البيانات الأساسية">
+            <i class="fa-solid fa-pen"></i>
         </button>
         <button class="btn" style="background: var(--green-bg); color: var(--green);" onclick="openPortfolioChart('${id}')">
             <i class="fa-solid fa-chart-line"></i>
@@ -314,12 +371,19 @@ window.submitUpdatePortfolio = async (id) => {
     const newValue = parseFloat(formData.get('currentValue')) || portfolio.currentValue;
     const deposit = parseFloat(formData.get('deposit')) || 0;
     const withdrawal = parseFloat(formData.get('withdrawal')) || 0;
+    const snapshotDate = formData.get('snapshotDate') || null;
+    const excludeFromTotal = form.querySelector('[name="excludeFromTotal"]')?.checked || false;
 
     const updates = {
-        currentValue: newValue + deposit - withdrawal,
-        totalDeposits: (portfolio.totalDeposits || 0) + deposit,
-        totalWithdrawals: (portfolio.totalWithdrawals || 0) + withdrawal
+        currentValue: parseFloat((newValue + deposit - withdrawal).toFixed(2)),
+        totalDeposits: parseFloat(((portfolio.totalDeposits || 0) + deposit).toFixed(2)),
+        totalWithdrawals: parseFloat(((portfolio.totalWithdrawals || 0) + withdrawal).toFixed(2)),
+        excludeFromTotal
     };
+
+    if (snapshotDate) {
+        updates.snapshotDate = snapshotDate;
+    }
 
     try {
         showLoading();
@@ -346,6 +410,102 @@ window.confirmDeletePortfolio = async (id) => {
         renderPortfolios();
     } catch (error) {
         showToast('فشل في الحذف', 'error');
+    } finally {
+        hideLoading();
+    }
+};
+
+// Edit basic portfolio info (name, type, currency, initial capital)
+window.openEditPortfolioInfoModal = (id) => {
+    const { portfolios } = getState();
+    const portfolio = portfolios.find(p => p.id === id);
+    if (!portfolio) return;
+
+    const typeOptions = [
+        { value: 'BROKERAGE', label: 'وسيط' },
+        { value: 'FUND', label: 'صندوق استثماري' },
+        { value: 'FITNESS', label: 'تحدي رياضي' },
+        { value: 'BANK', label: 'بنك' }
+    ];
+
+    const typeSelect = typeOptions.map(o =>
+        `<option value="${o.value}" ${portfolio.type === o.value ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+
+    const content = `
+        <form id="edit-portfolio-info-form">
+            <div class="form-group">
+                <label class="form-label">اسم المحفظة</label>
+                <input type="text" class="form-input" name="name" value="${portfolio.name}" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">العملة</label>
+                    <select class="form-select" name="currency">
+                        <option value="EGP" ${portfolio.currency === 'EGP' ? 'selected' : ''}>جنيه مصري (ج.م)</option>
+                        <option value="USD" ${portfolio.currency === 'USD' ? 'selected' : ''}>دولار ($)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">النوع</label>
+                    <select class="form-select" name="type">
+                        ${typeSelect}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">رأس المال المبدئي</label>
+                <input type="number" class="form-input" name="initialCapital" value="${parseFloat((portfolio.initialCapital || 0).toFixed(2))}" step="0.01">
+            </div>
+
+            <div class="form-group" style="margin-top: var(--space-xs);">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: var(--font-size-sm); color: var(--text-secondary);">
+                    <input type="checkbox" name="excludeFromTotal" ${portfolio.excludeFromTotal ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--gold);">
+                    استبعاد من الإجمالي
+                </label>
+            </div>
+        </form>
+    `;
+
+    const footer = `
+        <button class="btn" style="background: var(--bg-card);" onclick="openPortfolioDetails('${id}')">رجوع</button>
+        <button class="btn btn-primary" onclick="submitEditPortfolioInfo('${id}')">
+            <i class="fa-solid fa-check"></i> حفظ
+        </button>
+    `;
+
+    openModal('تعديل بيانات المحفظة', content, { footer });
+};
+
+window.submitEditPortfolioInfo = async (id) => {
+    const form = document.getElementById('edit-portfolio-info-form');
+    if (!form) return;
+
+    const formData = new FormData(form);
+    const name = formData.get('name')?.trim();
+    if (!name) {
+        showToast('الرجاء إدخال اسم المحفظة', 'error');
+        return;
+    }
+
+    const updates = {
+        name,
+        currency: formData.get('currency'),
+        type: formData.get('type'),
+        initialCapital: parseFloat(formData.get('initialCapital')) || 0,
+        excludeFromTotal: form.querySelector('[name="excludeFromTotal"]')?.checked || false
+    };
+
+    try {
+        showLoading();
+        await updatePortfolio(id, updates);
+        closeModal();
+        showToast('تم تحديث بيانات المحفظة', 'success');
+        renderPortfolios();
+    } catch (error) {
+        showToast('فشل في التحديث', 'error');
     } finally {
         hideLoading();
     }

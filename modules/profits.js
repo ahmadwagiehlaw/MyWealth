@@ -14,6 +14,8 @@ const COLLECTION = 'profits';
 const DISTRIBUTIONS_COLLECTION = 'partner_distributions';
 const EPSILON = 0.0001;
 const LOCAL_DIST_KEY_PREFIX = 'wc4-partner-distributions';
+const LEGACY_DIST_HIDDEN_KEY_PREFIX = 'wc4-partner-distributions-legacy-hidden';
+const LEGACY_DIST_ID_PREFIX = 'legacy-inferred';
 
 function getPartnerRatio() {
     const { settings } = getState();
@@ -44,6 +46,38 @@ function getLocalKey(userId) {
     return `${LOCAL_DIST_KEY_PREFIX}:${userId || 'guest'}`;
 }
 
+function getLegacyHiddenKey(userId) {
+    return `${LEGACY_DIST_HIDDEN_KEY_PREFIX}:${userId || 'guest'}`;
+}
+
+function isLegacyDistributionId(id) {
+    return String(id || '').startsWith(`${LEGACY_DIST_ID_PREFIX}-`);
+}
+
+function isLegacyDistributionHidden(userId) {
+    try {
+        return localStorage.getItem(getLegacyHiddenKey(userId)) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function hideLegacyDistribution(userId) {
+    try {
+        localStorage.setItem(getLegacyHiddenKey(userId), '1');
+    } catch {
+        // ignore storage issues
+    }
+}
+
+function clearLegacyDistributionHidden(userId) {
+    try {
+        localStorage.removeItem(getLegacyHiddenKey(userId));
+    } catch {
+        // ignore storage issues
+    }
+}
+
 function loadLocalDistributions(userId) {
     try {
         const raw = localStorage.getItem(getLocalKey(userId));
@@ -62,6 +96,23 @@ function saveLocalDistributions(userId, rows) {
     } catch {
         // ignore storage issues
     }
+}
+
+function upsertLocalDistribution(userId, row) {
+    const localRows = loadLocalDistributions(userId).map(normalizeDistRecord);
+    const next = sortByDateDesc([
+        normalizeDistRecord(row),
+        ...localRows.filter(item => item.id !== row.id)
+    ]);
+    saveLocalDistributions(userId, next);
+    return next;
+}
+
+function removeLocalDistribution(userId, id) {
+    const localRows = loadLocalDistributions(userId).map(normalizeDistRecord);
+    const next = localRows.filter(item => item.id !== id);
+    saveLocalDistributions(userId, next);
+    return next;
 }
 
 function sortByDateDesc(rows) {
@@ -97,6 +148,71 @@ function mergeDistributions(remoteRows, localRows) {
 
 function setDistributionsState(rows) {
     setState({ partnerDistributions: sortByDateDesc(rows) });
+}
+
+function getLatestPaidDate(profits) {
+    let latestTime = 0;
+    profits.forEach(p => {
+        const details = getShareDetailsRaw(p);
+        const paidEGP = toEGP(details.partnerPaid, p.currency);
+        if (paidEGP <= EPSILON) return;
+
+        const paidDate = toDateObject(p.distributedAt || p.updatedAt || p.date);
+        const paidTime = paidDate?.getTime() || 0;
+        if (paidTime > latestTime) latestTime = paidTime;
+    });
+
+    return latestTime > 0 ? new Date(latestTime) : new Date();
+}
+
+function buildLegacyInferredRow(userId, rows) {
+    if (isLegacyDistributionHidden(userId)) return null;
+
+    const { profits } = getState();
+    if (!Array.isArray(profits) || profits.length === 0) return null;
+
+    const cleanRows = (rows || []).filter(item => !isLegacyDistributionId(item.id));
+    const totalLoggedAppliedEGP = cleanRows.reduce((sum, row) => sum + toNumber(row.appliedEGP), 0);
+
+    let totalPaidFromProfitsEGP = 0;
+    let paidRecords = 0;
+    profits.forEach(p => {
+        const details = getShareDetailsRaw(p);
+        const paidEGP = toEGP(details.partnerPaid, p.currency);
+        if (paidEGP <= EPSILON) return;
+        totalPaidFromProfitsEGP += paidEGP;
+        paidRecords += 1;
+    });
+
+    const missingAppliedEGP = Math.max(0, totalPaidFromProfitsEGP - totalLoggedAppliedEGP);
+    if (missingAppliedEGP <= EPSILON) {
+        clearLegacyDistributionHidden(userId);
+        return null;
+    }
+
+    return normalizeDistRecord({
+        id: `${LEGACY_DIST_ID_PREFIX}-${userId}`,
+        userId,
+        amountEGP: missingAppliedEGP,
+        appliedEGP: missingAppliedEGP,
+        unappliedEGP: 0,
+        affectedRecords: paidRecords,
+        note: 'ترحيل تلقائي لتوزيعات قديمة غير موجودة في السجل',
+        date: getLatestPaidDate(profits),
+        createdAt: new Date(),
+        source: 'legacy'
+    });
+}
+
+function reconcileDistributionRows(userId, rows) {
+    const cleanRows = (rows || [])
+        .map(normalizeDistRecord)
+        .filter(item => !isLegacyDistributionId(item.id));
+
+    const legacyRow = buildLegacyInferredRow(userId, cleanRows);
+    if (!legacyRow) return sortByDateDesc(cleanRows);
+
+    return sortByDateDesc([legacyRow, ...cleanRows]);
 }
 
 function getExpectedPartnerShareRaw(profit, ratio = getPartnerRatio()) {
@@ -298,13 +414,17 @@ export async function getPartnerDistributions() {
         }));
 
         const merged = mergeDistributions(remoteRows, localRows);
-        setDistributionsState(merged);
-        return merged;
+        saveLocalDistributions(userId, merged);
+
+        const reconciled = reconcileDistributionRows(userId, merged);
+        setDistributionsState(reconciled);
+        return reconciled;
     } catch (error) {
         if (isPermissionDenied(error)) {
             console.warn('Partner distributions read skipped (permission denied). Using local cache only.');
-            setDistributionsState(localRows);
-            return localRows;
+            const reconciled = reconcileDistributionRows(userId, localRows);
+            setDistributionsState(reconciled);
+            return reconciled;
         }
         console.error('Error fetching partner distributions:', error);
         throw error;
@@ -427,6 +547,7 @@ export async function distributePartnerMonthly(amountEGP, distributionDate = nul
             createdAt: Timestamp.now()
         });
         createdRecord = normalizeDistRecord({ id: docRef.id, ...recordPayload, source: 'remote' });
+        upsertLocalDistribution(userId, createdRecord);
     } catch (error) {
         if (!isPermissionDenied(error)) {
             throw error;
@@ -434,10 +555,7 @@ export async function distributePartnerMonthly(amountEGP, distributionDate = nul
 
         const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         createdRecord = normalizeDistRecord({ id: localId, ...recordPayload, source: 'local' });
-
-        const localRows = loadLocalDistributions(userId);
-        localRows.unshift(createdRecord);
-        saveLocalDistributions(userId, localRows);
+        upsertLocalDistribution(userId, createdRecord);
     }
 
     await getProfits();
@@ -474,6 +592,10 @@ export async function updatePartnerDistributionRecord(id, updates) {
         date: updates.date ? new Date(updates.date) : new Date()
     };
 
+    if (isLegacyDistributionId(id)) {
+        throw new Error('لا يمكن تعديل سجل الترحيل التلقائي');
+    }
+
     const isLocal = String(id).startsWith('local-');
 
     if (!isLocal) {
@@ -488,6 +610,12 @@ export async function updatePartnerDistributionRecord(id, updates) {
                 updatedAt: Timestamp.now()
             });
 
+            upsertLocalDistribution(userId, normalizeDistRecord({
+                id,
+                userId,
+                ...patch,
+                source: 'remote'
+            }));
             await getPartnerDistributions();
             return;
         } catch (error) {
@@ -497,7 +625,21 @@ export async function updatePartnerDistributionRecord(id, updates) {
 
     const rows = loadLocalDistributions(userId).map(normalizeDistRecord);
     const index = rows.findIndex(item => item.id === id);
-    if (index < 0) throw new Error('Distribution record not found');
+    if (index < 0) {
+        if (!isLocal) {
+            rows.unshift(normalizeDistRecord({
+                id,
+                userId,
+                ...patch,
+                source: 'local'
+            }));
+            saveLocalDistributions(userId, rows);
+            const reconciled = reconcileDistributionRows(userId, rows);
+            setDistributionsState(reconciled);
+            return;
+        }
+        throw new Error('Distribution record not found');
+    }
 
     rows[index] = normalizeDistRecord({
         ...rows[index],
@@ -507,7 +649,8 @@ export async function updatePartnerDistributionRecord(id, updates) {
     });
 
     saveLocalDistributions(userId, rows);
-    setDistributionsState(rows);
+    const reconciled = reconcileDistributionRows(userId, rows);
+    setDistributionsState(reconciled);
 }
 
 /**
@@ -517,11 +660,20 @@ export async function deletePartnerDistributionRecord(id) {
     const userId = getUserId();
     if (!userId) throw new Error('Not authenticated');
 
+    if (isLegacyDistributionId(id)) {
+        hideLegacyDistribution(userId);
+        const localRows = loadLocalDistributions(userId).map(normalizeDistRecord);
+        const reconciled = reconcileDistributionRows(userId, localRows);
+        setDistributionsState(reconciled);
+        return;
+    }
+
     const isLocal = String(id).startsWith('local-');
 
     if (!isLocal) {
         try {
             await deleteDoc(doc(db, DISTRIBUTIONS_COLLECTION, id));
+            removeLocalDistribution(userId, id);
             await getPartnerDistributions();
             return;
         } catch (error) {
@@ -529,11 +681,9 @@ export async function deletePartnerDistributionRecord(id) {
         }
     }
 
-    const rows = loadLocalDistributions(userId).map(normalizeDistRecord);
-    const next = rows.filter(item => item.id !== id);
-
-    saveLocalDistributions(userId, next);
-    setDistributionsState(next);
+    const next = removeLocalDistribution(userId, id);
+    const reconciled = reconcileDistributionRows(userId, next);
+    setDistributionsState(reconciled);
 }
 
 // ==========================================
@@ -636,6 +786,9 @@ export function getProfitsByMonth() {
 
 /**
  * Compare profits with bank benchmark
+ * capitalBase = sum of all workingCapital across trades (the actual capital deployed).
+ * If no workingCapital data, fallback to total invested capital across portfolios.
+ * Bank profit = capitalBase × monthlyRate × months
  * @param {number} months - Number of months
  */
 export function compareToBankBenchmark(months) {
@@ -643,18 +796,22 @@ export function compareToBankBenchmark(months) {
     const safeMonths = Math.max(1, toNumber(months, 1));
     const monthlyRate = settings.bankBenchmark / 100;
 
-    const validCapitals = profits
+    // Sum of all working capitals used in trades
+    const totalWorkingCapital = profits
         .filter(p => toNumber(p.workingCapital) > 0)
-        .map(p => toEGP(toNumber(p.workingCapital), p.currency));
+        .reduce((sum, p) => sum + toEGP(toNumber(p.workingCapital), p.currency), 0);
 
-    let capitalBase = 0;
-    if (validCapitals.length > 0) {
-        capitalBase = validCapitals.reduce((sum, c) => sum + c, 0) / validCapitals.length;
+    let capitalBase;
+    if (totalWorkingCapital > 0) {
+        capitalBase = totalWorkingCapital;
     } else {
-        capitalBase = portfolios.reduce((sum, p) => {
-            const invested = (p.initialCapital || 0) + (p.totalDeposits || 0) - (p.totalWithdrawals || 0);
-            return sum + toEGP(invested, p.currency);
-        }, 0);
+        // Fallback: total invested capital across portfolios
+        capitalBase = portfolios
+            .filter(p => !p.excludeFromTotal)
+            .reduce((sum, p) => {
+                const invested = (p.initialCapital || 0) + (p.totalDeposits || 0) - (p.totalWithdrawals || 0);
+                return sum + toEGP(invested, p.currency);
+            }, 0);
     }
 
     const bankProfit = capitalBase * monthlyRate * safeMonths;
